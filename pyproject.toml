@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "echohub"
+version = "1.0.1"
+description = "Local-first telemetry deck for Echopoint data."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Ujjwal Vivek"}]
+keywords = ["echohub", "echopoint", "dashboard", "telemetry", "tui", "tkinter"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "basedpyright>=1.31",
+]
+
+[project.scripts]
+echohub = "echohub.__main__:main"
+dev = "echohub.dev:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+echohub = [
+  "assets/*.png",
+  "assets/*.ico",
+  "assets/*.svg"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.4",
+]
