@@ -1,0 +1,197 @@
+from __future__ import annotations
+
+import threading
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Protocol, final
+
+from .analytics import build_analytics
+from .cache import CacheStore
+from .client import EchopointClient, Health
+from .config import DashboardConfig
+from .models import DashboardState
+from .normalize import (
+    normalize_docker,
+    normalize_meta,
+    normalize_packages,
+    normalize_projects,
+    normalize_statuses,
+    normalize_user,
+)
+from .types import JsonObject, as_str
+
+
+@dataclass(slots=True)
+class ProgressUpdate:
+    stage: str
+    progress: float | None
+    message: str
+
+
+@dataclass(slots=True)
+class SyncResult:
+    changed: bool
+    source: str
+    last_updated: str
+    message: str
+
+
+ProgressCallback = Callable[[ProgressUpdate], None]
+
+
+class EchopointClientProtocol(Protocol):
+    def health(self) -> Health: ...
+    def store(self) -> JsonObject: ...
+    def refresh(self) -> JsonObject: ...
+
+
+@final
+class EchopointEngine:
+    """Network rules:
+    1. GET /v1/health to learn whether last_updated changed.
+    2. GET /v1/store only if it changed or no local snapshot exists.
+    3. Manual refresh calls Echopoint's /v1/refresh once, then re-syncs.
+    """
+
+    def __init__(
+        self,
+        config: DashboardConfig | None = None,
+        *,
+        client: EchopointClientProtocol | None = None,
+    ) -> None:
+        self.config = config or DashboardConfig.from_env()
+        self.client: EchopointClientProtocol = client or EchopointClient(self.config)
+        self.cache = CacheStore(self.config.cache_dir)
+        self._lock = threading.RLock()
+        self._state: DashboardState | None = None
+        self._raw: JsonObject = {}
+        self._remote_sources: int | None = None
+
+    @property
+    def state(self) -> DashboardState:
+        with self._lock:
+            if self._state is None:
+                cached = self.cache.load()
+                if cached is None:
+                    raise RuntimeError(
+                        "Engine has no data. Call sync() first or use demo mode."
+                    )
+                _ = self._apply(
+                    cached.store, fetched_at=cached.fetched_at, from_cache=True
+                )
+            assert self._state is not None
+            return self._state
+
+    @property
+    def raw_store(self) -> JsonObject:
+        with self._lock:
+            return dict(self._raw)
+
+    def load_cache(self) -> bool:
+        cached = self.cache.load()
+        if cached is None:
+            return False
+        _ = self._apply(cached.store, fetched_at=cached.fetched_at, from_cache=True)
+        return True
+
+    def _apply(
+        self, store: JsonObject, *, fetched_at: str, from_cache: bool
+    ) -> DashboardState:
+        projects = normalize_projects(store)
+        npm = normalize_packages(store, "npm")
+        crates = normalize_packages(store, "crates")
+        docker = normalize_docker(store)
+        statuses = normalize_statuses(store)
+        user = normalize_user(store)
+        analytics = build_analytics(projects, npm, crates, docker)
+        state = DashboardState(
+            meta=normalize_meta(
+                store,
+                fetched_at=fetched_at,
+                from_cache=from_cache,
+                remote_sources=self._remote_sources,
+            ),
+            projects=projects,
+            npm=npm,
+            crates=crates,
+            docker=docker,
+            statuses=statuses,
+            user=user,
+            analytics=analytics,
+            raw_key_count=len(store),
+        )
+        with self._lock:
+            self._raw = store
+            self._state = state
+        return state
+
+    def sync(
+        self,
+        *,
+        force_store: bool = False,
+        progress: ProgressCallback | None = None,
+    ) -> SyncResult:
+        callback = progress or _noop_progress
+        callback(
+            ProgressUpdate("health", 0.08, "Checking Echopoint for a changed snapshot")
+        )
+        health = self.client.health()
+        self._remote_sources = health.sources
+        cached = self.cache.load()
+        current = cached.last_updated if cached else ""
+        if (
+            cached
+            and not force_store
+            and health.last_updated
+            and health.last_updated == current
+        ):
+            if self._state is None:
+                _ = self._apply(
+                    cached.store, fetched_at=cached.fetched_at, from_cache=True
+                )
+            callback(ProgressUpdate("done", 1.0, "Local snapshot is already current"))
+            return SyncResult(False, "cache", current, "No change")
+
+        callback(
+            ProgressUpdate(
+                "store", 0.55, "Snapshot changed; downloading /v1/store once"
+            )
+        )
+        store = self.client.store()
+        last_updated = as_str(store.get("_meta:last_updated")) or health.last_updated
+        saved = self.cache.save(store, last_updated)
+        callback(
+            ProgressUpdate("normalize", 0.85, "Normalizing telemetry for all renderers")
+        )
+        _ = self._apply(saved.store, fetched_at=saved.fetched_at, from_cache=False)
+        callback(ProgressUpdate("done", 1.0, "Dashboard snapshot updated"))
+        return SyncResult(True, "network", saved.last_updated, "Updated")
+
+    def refresh(self, progress: ProgressCallback | None = None) -> SyncResult:
+        callback = progress or _noop_progress
+        callback(ProgressUpdate("refresh", 0.06, "Requesting source refresh"))
+        callback(ProgressUpdate("refresh", None, "Echopoint is collecting telemetry"))
+        _ = self.client.refresh()
+        callback(
+            ProgressUpdate("verify", 0.78, "Refresh returned; checking snapshot marker")
+        )
+
+        def scaled(update: ProgressUpdate) -> None:
+            scaled_progress = (
+                None if update.progress is None else 0.78 + update.progress * 0.22
+            )
+            callback(ProgressUpdate(update.stage, scaled_progress, update.message))
+
+        result = self.sync(force_store=False, progress=scaled)
+        callback(ProgressUpdate("done", 1.0, "Refresh complete"))
+        return result
+
+    def install_demo(self, store: JsonObject) -> DashboardState:
+        now = datetime.now(UTC).isoformat()
+        saved = self.cache.save(store, as_str(store.get("_meta:last_updated")) or now)
+        return self._apply(saved.store, fetched_at=saved.fetched_at, from_cache=False)
+
+
+def _noop_progress(_update: ProgressUpdate) -> None:
+    return
