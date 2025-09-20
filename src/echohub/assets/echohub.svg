@@ -1,0 +1,44 @@
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 512 512"
+    role="img"
+    aria-labelledby="title desc"
+>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="#181825" />
+  <circle
+        cx="256"
+        cy="256"
+        r="164"
+        fill="none"
+        stroke="#313244"
+        stroke-width="24"
+    />
+  <path
+        d="M 372 140
+           A 164 164 0 0 1 372 372"
+        fill="none"
+        stroke="#94e2d5"
+        stroke-width="24"
+        stroke-linecap="round"
+    />
+  <path
+        d="M 334 178
+           A 110 110 0 0 1 334 334"
+        fill="none"
+        stroke="#74c7ec"
+        stroke-width="24"
+        stroke-linecap="round"
+    />
+  <path
+        d="M 301 211
+           A 64 64 0 0 1 301 301"
+        fill="none"
+        stroke="#cba6f7"
+        stroke-width="24"
+        stroke-linecap="round"
+    />
+  <circle cx="222" cy="256" r="54" fill="#11111b" />
+  <circle cx="222" cy="256" r="34" fill="#89b4fa" />
+  <circle cx="404" cy="256" r="18" fill="#11111b" />
+  <circle cx="404" cy="256" r="10" fill="#f5c2e7" />
+</svg>
