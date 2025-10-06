@@ -1,0 +1,31 @@
+{
+  "include": [
+    "src",
+    "tests",
+    "run.py"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".pytest_cache",
+  ],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "strict",
+  "reportExplicitAny": "error",
+  "reportMissingTypeArgument": "error",
+  "reportOptionalMemberAccess": "error",
+  "reportUninitializedInstanceVariable": "error",
+  "reportCallIssue": "error",
+  "reportArgumentType": "error",
+  "reportUnusedCallResult": "none",
+  "reportUnannotatedClassAttribute": "none",
+  "reportUnknownParameterType": "none",
+  "reportMissingParameterType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownLambdaType": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnusedParameter": "none",
+  "reportPrivateUsage": "none",
+  "reportImplicitOverride": "none",
+  "reportAny": "none"
+}
