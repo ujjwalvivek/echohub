@@ -77,6 +77,20 @@ def _apply_native_window_theme(root: tk.Tk) -> None:
         return
 
 
+def _set_windows_app_identity() -> None:
+    if sys.platform != "win32":
+        return
+
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "ujjwalvivek.echohub"
+        )
+    except (AttributeError, OSError):
+        return
+
+
 @final
 class DashboardGui:
     views: ClassVar[tuple[str, ...]] = (
@@ -92,12 +106,15 @@ class DashboardGui:
 
     def __init__(self, engine: EchopointEngine):
         self.engine = engine
+        _set_windows_app_identity()
         self.root = tk.Tk()
         self.root.title("Echohub")
         self.root.geometry("1500x900")
         self.root.minsize(1080, 680)
         self.root.configure(bg=T.BASE)
         self._app_icon = None
+        self._brand_icon = None
+        self._native_icons = None
         self._apply_identity()
         self.view = 0
         self.progress: ProgressUpdate | None = None
@@ -123,23 +140,101 @@ class DashboardGui:
         self._build_shell()
         self.root.bind("<Key>", self._key)
         self.root.after(40, self._tick)
-        self.root.after(80, lambda: _apply_native_window_theme(self.root))
+        
+        def finish_native_window() -> None:
+            _apply_native_window_theme(self.root)        
+        
+        self.root.after(
+            80,
+            finish_native_window,
+        )
 
     def _apply_identity(self) -> None:
+        asset_root = files("echohub").joinpath("assets")
+
+        png = asset_root.joinpath("echohub.png")
+        ico = asset_root.joinpath("echohub.ico")
+
         try:
-            asset_root = files("echohub").joinpath("assets")
-            png = asset_root.joinpath("echohub-64.png")
-            self._app_icon = tk.PhotoImage(file=str(png))
-            self.root.iconphoto(True, self._app_icon)
-            if sys.platform == "win32":
-                try:
-                    self.root.iconbitmap(
-                        default=str(asset_root.joinpath("echohub.ico"))
-                    )
-                except tk.TclError:
-                    pass
+            self._app_icon = tk.PhotoImage(
+                file=str(png),
+            )
+            self._brand_icon = self._app_icon.subsample(8, 8)
+            self.root.iconphoto(
+                True,
+                self._app_icon,
+            )
         except (OSError, tk.TclError):
             self._app_icon = None
+            self._brand_icon = None
+
+        if sys.platform != "win32":
+            return
+
+        try:
+            self.root.iconbitmap(
+                str(ico),
+            )
+        except tk.TclError:
+            pass
+
+        self.root.update_idletasks()
+
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+
+            hwnd = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+
+            image_icon = 1
+            lr_loadfromfile = 0x0010
+
+            wm_seticon = 0x0080
+            icon_small = 0
+            icon_big = 1
+
+            big_icon = user32.LoadImageW(
+                None,
+                str(ico),
+                image_icon,
+                32,
+                32,
+                lr_loadfromfile,
+            )
+
+            small_icon = user32.LoadImageW(
+                None,
+                str(ico),
+                image_icon,
+                16,
+                16,
+                lr_loadfromfile,
+            )
+
+            if big_icon:
+                user32.SendMessageW(
+                    hwnd,
+                    wm_seticon,
+                    icon_big,
+                    big_icon,
+                )
+
+            if small_icon:
+                user32.SendMessageW(
+                    hwnd,
+                    wm_seticon,
+                    icon_small,
+                    small_icon,
+                )
+
+            self._native_icons = (
+                big_icon,
+                small_icon,
+            )
+
+        except (AttributeError, OSError):
+            self._native_icons = None
 
     def _style(self) -> None:
         style = ttk.Style(self.root)
@@ -204,9 +299,9 @@ class DashboardGui:
         rail.pack_propagate(False)
         brand = tk.Frame(rail, bg=T.MANTLE)
         brand.pack(fill="x", padx=17, pady=(19, 17))
-        if self._app_icon is not None:
+        if self._brand_icon is not None:
             mark = tk.Label(
-                brand, image=self._app_icon, bg=T.MANTLE, bd=0, highlightthickness=0
+                brand, image=self._brand_icon, bg=T.MANTLE, bd=0, highlightthickness=0
             )
         else:
             mark = tk.Label(
