@@ -1,0 +1,406 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Verify tag matches package version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          print(data["project"]["version"])
+          PY
+          )"
+
+          if [[ "$TAG_VERSION" != "$PACKAGE_VERSION" ]]; then
+            echo "Tag version ($TAG_VERSION) does not match pyproject.toml ($PACKAGE_VERSION)." >&2
+            exit 1
+          fi
+
+          echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+
+  build-python:
+    name: Build Python package
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build
+
+      - name: Build wheel and source distribution
+        run: python -m build
+
+      - name: Smoke-test built wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install dist/*.whl
+          echohub --help
+
+      - name: Upload Python distributions
+        uses: actions/upload-artifact@v5
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+
+  build-native:
+    name: Build ${{ matrix.platform }} native apps
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: Windows
+            artifact: windows-x64
+          - os: ubuntu-latest
+            platform: Linux
+            artifact: linux-x64
+          - os: macos-latest
+            platform: macOS
+            artifact: macos-arm64
+          - os: macos-15-intel
+            platform: macOS
+            artifact: macos-x64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install native build tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install . pyinstaller pillow
+
+      - name: Detect architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MACHINE="$(python -c 'import platform; print(platform.machine().lower())')"
+
+          case "$MACHINE" in
+            x86_64|amd64)
+              ARCH="x64"
+              ;;
+            arm64|aarch64)
+              ARCH="arm64"
+              ;;
+            *)
+              ARCH="$MACHINE"
+              ;;
+          esac
+
+          echo "ARCH=$ARCH" >> "$GITHUB_ENV"
+
+      - name: Create GUI and TUI launchers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .release
+
+          cat > .release/gui_launcher.py <<'PY'
+          import sys
+          from echohub.__main__ import main
+
+          raise SystemExit(main([*sys.argv[1:], "gui"]))
+          PY
+
+          cat > .release/tui_launcher.py <<'PY'
+          import sys
+          from echohub.__main__ import main
+
+          raise SystemExit(main([*sys.argv[1:], "tui"]))
+          PY
+
+      - name: Build GUI and TUI
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ICON="src/echohub/assets/echohub.png"
+          if [[ "$RUNNER_OS" == "Windows" && -f "src/echohub/assets/echohub.ico" ]]; then
+            ICON="src/echohub/assets/echohub.ico"
+          fi
+
+          pyinstaller \
+            --noconfirm \
+            --clean \
+            --name Echohub \
+            --onedir \
+            --windowed \
+            --collect-data echohub \
+            --hidden-import echohub.renderers.gui \
+            --icon "$ICON" \
+            .release/gui_launcher.py
+
+          pyinstaller \
+            --noconfirm \
+            --clean \
+            --name echohub-tui \
+            --onefile \
+            --console \
+            --collect-data echohub \
+            --hidden-import echohub.renderers.tui \
+            .release/tui_launcher.py
+
+      - name: Package native apps
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import shutil
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          platform_name = os.environ["PLATFORM"]
+          arch = os.environ["ARCH"]
+
+          root = Path.cwd()
+          release_dir = root / "release-assets"
+          staging = root / ".release-packages"
+          release_dir.mkdir(exist_ok=True)
+          staging.mkdir(exist_ok=True)
+
+          def add_docs(folder: Path) -> None:
+              for name in ("README.md", "LICENSE"):
+                  source = root / name
+                  if source.is_file():
+                      shutil.copy2(source, folder / name)
+
+          gui_name = f"Echohub-GUI-{version}-{platform_name}-{arch}"
+          gui_package = staging / gui_name
+          gui_package.mkdir(parents=True, exist_ok=True)
+
+          mac_app = root / "dist" / "Echohub.app"
+          gui_dir = root / "dist" / "Echohub"
+
+          if mac_app.is_dir():
+              shutil.copytree(
+                  mac_app,
+                  gui_package / "Echohub.app",
+                  symlinks=True,
+                  dirs_exist_ok=True,
+              )
+          elif gui_dir.is_dir():
+              shutil.copytree(
+                  gui_dir,
+                  gui_package / "Echohub",
+                  symlinks=True,
+                  dirs_exist_ok=True,
+              )
+          else:
+              raise SystemExit("PyInstaller GUI output was not found")
+
+          add_docs(gui_package)
+          shutil.make_archive(
+              str(release_dir / gui_name),
+              "zip",
+              root_dir=staging,
+              base_dir=gui_name,
+          )
+
+          tui_name = f"Echohub-TUI-{version}-{platform_name}-{arch}"
+          tui_package = staging / tui_name
+          tui_package.mkdir(parents=True, exist_ok=True)
+
+          suffix = ".exe" if platform_name == "Windows" else ""
+          tui_binary = root / "dist" / f"echohub-tui{suffix}"
+          if not tui_binary.is_file():
+              raise SystemExit(f"PyInstaller TUI output was not found: {tui_binary}")
+
+          shutil.copy2(tui_binary, tui_package / tui_binary.name)
+          add_docs(tui_package)
+
+          shutil.make_archive(
+              str(release_dir / tui_name),
+              "zip",
+              root_dir=staging,
+              base_dir=tui_name,
+          )
+          PY
+
+      - name: Upload native artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: native-${{ matrix.artifact }}
+          path: release-assets/*.zip
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs:
+      - prepare
+      - build-python
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/echohub
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download Python distributions
+        uses: actions/download-artifact@v6
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    name: Create GitHub Release
+    needs:
+      - prepare
+      - build-python
+      - build-native
+      - publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout tags
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: native-*
+          path: release-assets/
+          merge-multiple: true
+
+      - name: Download Python distributions
+        uses: actions/download-artifact@v6
+        with:
+          name: python-package-distributions
+          path: release-assets/
+
+      - name: Create checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Write release body
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          PREVIOUS_TAG="$(git tag --sort=-version:refname | grep -Fxv "$GITHUB_REF_NAME" | head -n 1 || true)"
+
+          cat > release-body.md <<EOF
+          ## Echohub ${VERSION}
+
+          Cross-platform Echohub release.
+
+          ### Install from PyPI
+
+          \`\`\`bash
+          pipx install echohub
+          echohub tui
+          \`\`\`
+
+          The installed \`echohub\` command is placed on your user PATH by the tool installer. The same package can launch the desktop renderer with \`echohub gui\`.
+          EOF
+
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            cat >> release-body.md <<EOF
+
+          **Full Changelog:** https://github.com/${GITHUB_REPOSITORY}/compare/${PREVIOUS_TAG}...${GITHUB_REF_NAME}
+          EOF
+          fi
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "Echohub ${VERSION}" \
+              --notes-file release-body.md
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --verify-tag \
+              --title "Echohub ${VERSION}" \
+              --notes-file release-body.md
+          fi
+
+          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
