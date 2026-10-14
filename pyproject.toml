@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "echohub"
-version = "2.0.1"
+version = "2.1.0"
 description = "Local-first telemetry deck for Echopoint data."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,7 +26,6 @@ dev = [
 
 [project.scripts]
 echohub = "echohub.__main__:main"
-dev = "echohub.dev:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
