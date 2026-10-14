@@ -1,40 +1,30 @@
-from __future__ import annotations
-
 """
 Echohub development task runner.
 
 Run from the project root:
 
     uv run python scripts/dev.py lint
-    uv run dev lint
         Run Ruff without modifying files.
 
     uv run python scripts/dev.py format
-    uv run dev format
         Format Python and apply Ruff's safe automatic fixes.
 
     uv run python scripts/dev.py typecheck
-    uv run dev typecheck
         Run BasedPyright.
 
     uv run python scripts/dev.py test
-    uv run dev test
         Run the complete pytest suite.
 
     uv run python scripts/dev.py icons
-    uv run dev icons
         Generate PNG and ICO assets from assets/echohub.svg.
 
     uv run python scripts/dev.py validate
-    uv run dev validate
         Verify Python compilation.
 
     uv run python scripts/dev.py check
-    uv run dev check
         Run lint + typecheck + tests.
 
     uv run python scripts/dev.py all
-    uv run dev all
         Format/fix + typecheck + tests + validation.
 
 Launch code:
@@ -46,6 +36,8 @@ Launch code:
     uv run echohub --demo tui
 """
 
+from __future__ import annotations
+
 import argparse
 import compileall
 import platform
@@ -54,7 +46,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 
 APP_ASSETS = ROOT / "src" / "echohub" / "assets"
 ASSET_SOURCE = APP_ASSETS / "echohub.svg"
@@ -62,6 +54,7 @@ ASSET_SOURCE = APP_ASSETS / "echohub.svg"
 PYTHON_PATHS = (
     ROOT / "src",
     ROOT / "tests",
+    ROOT / "scripts",
 )
 
 
