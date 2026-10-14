@@ -15,18 +15,20 @@ def compact(value: float) -> str:
 def human_bytes(value: float | None) -> str:
     if value is None:
         return "-"
+    # Decimal units, as GitHub, npm and crates.io report sizes. One decimal
+    # below 100 so 17.9 MB doesn't read as 17 MB.
     size = max(0.0, float(value))
-    for suffix, divisor in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
+    for suffix, divisor in (("GB", 1000**3), ("MB", 1000**2), ("KB", 1000)):
         if size >= divisor:
             n = size / divisor
-            return f"{n:.1f} {suffix}" if n < 10 else f"{n:.0f} {suffix}"
+            return f"{n:.1f} {suffix}" if n < 100 else f"{n:.0f} {suffix}"
     return f"{int(size)} B"
 
 
 def human_kb(value: float | None) -> str:
     if value is None:
         return "-"
-    return human_bytes(float(value) * 1024)
+    return human_bytes(float(value) * 1000)
 
 
 def relative_time(value: str) -> str:

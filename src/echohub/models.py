@@ -198,6 +198,8 @@ class LanguageSlice:
     bytes: int
     share: float
     projects: int
+    # Bytes from Echopoint's sanitized private-repo aggregate (no repo names).
+    private_bytes: int = 0
 
 
 class CommitWaveRow(TypedDict):
@@ -244,6 +246,7 @@ class DashboardState:
     user: UserSummary
     analytics: DashboardAnalytics
     raw_key_count: int = 0
+    pypi: list[PackageArtifact] = field(default_factory=list)
 
     def to_dict(self) -> JsonObject:
         # asdict() is typed as dict[str, Any] by typeshed even though every field

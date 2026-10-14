@@ -136,6 +136,14 @@ def demo_store() -> JsonObject:
             "updated_at": "2026-08-20T10:00:00Z",
         }
     }
+    store["pypi:echohub"] = {
+        "name": "echohub",
+        "version": "2.0.1",
+        "summary": "Local-first telemetry deck for Echopoint data.",
+        "requires_python": ">=3.11",
+        "license": "MIT",
+        "home_page": None,
+    }
     store["docker:echopoint:tags"] = {
         "results": [
             {

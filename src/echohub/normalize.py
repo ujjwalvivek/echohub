@@ -189,6 +189,20 @@ def normalize_packages(store: JsonObject, prefix: str) -> list[PackageArtifact]:
                     raw=data,
                 )
             )
+        elif prefix == "pypi":
+            # Echopoint already reduces PyPI's JSON to these few fields.
+            result.append(
+                PackageArtifact(
+                    ecosystem="pypi",
+                    alias=alias,
+                    name=as_str(data.get("name"), alias),
+                    version=as_str(data.get("version")),
+                    description=as_str(data.get("summary")),
+                    license_name=as_str(data.get("license")),
+                    homepage=as_str(data.get("home_page")),
+                    raw=data,
+                )
+            )
         else:
             crate_data = as_object(data.get("crate"))
             crate = crate_data if crate_data else data
@@ -321,6 +335,19 @@ def normalize_user(store: JsonObject) -> UserSummary:
         contribution_days=days,
         annual_totals=dict(sorted(annual.items())),
     )
+
+
+def normalize_private_languages(store: JsonObject) -> dict[str, int]:
+    """Read Echopoint's sanitized ``github:private:<owner>:langs`` aggregate."""
+    totals: dict[str, int] = defaultdict(int)
+    for key, value in store.items():
+        if not (key.startswith("github:private:") and key.endswith(":langs")):
+            continue
+        for language, raw_bytes in as_object(as_object(value).get("languages")).items():
+            byte_count = as_int(raw_bytes)
+            if byte_count > 0:
+                totals[language] += byte_count
+    return dict(totals)
 
 
 def normalize_meta(

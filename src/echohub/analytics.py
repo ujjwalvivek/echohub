@@ -58,14 +58,20 @@ def score_projects(projects: list[Project]) -> None:
         )
 
 
-def language_slices(projects: Iterable[Project]) -> list[LanguageSlice]:
+def language_slices(
+    projects: Iterable[Project],
+    private_languages: dict[str, int] | None = None,
+) -> list[LanguageSlice]:
     totals: dict[str, int] = defaultdict(int)
     counts: dict[str, int] = defaultdict(int)
+    private = private_languages or {}
     for project in projects:
         for language, value in project.languages.items():
             totals[language] += max(0, value)
             if value > 0:
                 counts[language] += 1
+    for language, value in private.items():
+        totals[language] += max(0, value)
     grand = sum(totals.values()) or 1
     rows = [
         LanguageSlice(
@@ -73,6 +79,7 @@ def language_slices(projects: Iterable[Project]) -> list[LanguageSlice]:
             bytes=value,
             share=value / grand,
             projects=counts[language],
+            private_bytes=max(0, private.get(language, 0)),
         )
         for language, value in totals.items()
     ]
@@ -246,6 +253,7 @@ def ecosystem_links(
     npm: list[PackageArtifact],
     crates: list[PackageArtifact],
     docker: list[DockerArtifact],
+    pypi: list[PackageArtifact] | None = None,
 ) -> list[EcosystemLinkRow]:
     links: list[EcosystemLinkRow] = []
     for item in npm:
@@ -268,6 +276,16 @@ def ecosystem_links(
                 "artifacts": [_artifact_row("crates", item.version, item.name)],
             }
         )
+    for item in pypi or []:
+        project, link_kind = _artifact_project(item.alias, item.name, projects)
+        links.append(
+            {
+                "alias": item.alias,
+                "project": project,
+                "link_kind": link_kind,
+                "artifacts": [_artifact_row("pypi", item.version, item.name)],
+            }
+        )
     for item in docker:
         project, link_kind = _artifact_project(item.alias, item.alias, projects)
         links.append(
@@ -286,8 +304,13 @@ def build_analytics(
     npm: list[PackageArtifact],
     crates: list[PackageArtifact],
     docker: list[DockerArtifact],
+    private_languages: dict[str, int] | None = None,
+    *,
+    pypi: list[PackageArtifact] | None = None,
 ) -> DashboardAnalytics:
+    pypi = pypi or []
     score_projects(projects)
+    private_bytes = sum(max(0, value) for value in (private_languages or {}).values())
     nodes, edges = constellation(projects)
     commits = [commit for project in projects for commit in project.commits]
     totals: dict[str, int | float] = {
@@ -300,16 +323,18 @@ def build_analytics(
         "recent_additions": sum(commit.additions for commit in commits),
         "recent_deletions": sum(commit.deletions for commit in commits),
         "recent_churn": sum(commit.churn for commit in commits),
-        "language_bytes": sum(project.language_bytes for project in projects),
+        "language_bytes": sum(project.language_bytes for project in projects)
+        + private_bytes,
+        "private_language_bytes": private_bytes,
         "repo_size_kb": sum(project.size_kb for project in projects),
         "releases": sum(len(project.releases) for project in projects),
-        "packages": len(npm) + len(crates) + len(docker),
+        "packages": len(npm) + len(crates) + len(pypi) + len(docker),
     }
     return DashboardAnalytics(
         totals=totals,
-        languages=language_slices(projects),
+        languages=language_slices(projects, private_languages),
         constellation_nodes=nodes,
         constellation_edges=edges,
         commit_wave=commit_wave(projects),
-        ecosystem_links=ecosystem_links(projects, npm, crates, docker),
+        ecosystem_links=ecosystem_links(projects, npm, crates, docker, pypi),
     )
