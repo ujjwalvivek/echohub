@@ -282,7 +282,8 @@ class TuiApp:
         visible_rows = max(1, height - 10)
         for idx, p in enumerate(rows[off : off + visible_rows]):
             marker = BLUE + "›" + RESET if idx == 0 else " "
-            row = f"{marker}{TEXT}{p.alias[:19]:19}{RESET}  " + " ".join(
+            name = PEACH if p.private else TEXT
+            row = f"{marker}{name}{p.alias[:19]:19}{RESET}  " + " ".join(
                 f"{str(c[2](p))[: c[1]]:<{c[1]}}" for c in visible
             )
             lines.append(row)
@@ -297,7 +298,9 @@ class TuiApp:
             )
             lines += [
                 "",
-                f"{BOLD}{TEXT}{p.full_name or p.alias}{RESET}  {MUTED}{p.description or 'No description'}{RESET}",
+                f"{BOLD}{TEXT}{p.full_name or p.alias}{RESET}"
+                + (f" {PEACH}private{RESET}" if p.private else "")
+                + f"  {MUTED}{p.description or 'No description'}{RESET}",
                 f"{MUTED}languages{RESET} {SUB}{mix or '-'}{RESET}   {MUTED}top contributor{RESET} {SUB}{top}{RESET}   {MUTED}branch{RESET} {SUB}{p.default_branch or '-'}{RESET}",
             ]
         lines.append(
@@ -669,6 +672,18 @@ class TuiApp:
                         compact(a.downloads) if a.downloads is not None else "-",
                         "-",
                         relative_time(a.updated_at),
+                    )
+                )
+            for a in state.pypi:
+                rows.append(
+                    (
+                        "pypi",
+                        a.name,
+                        a.alias,
+                        a.version,
+                        "-",
+                        "-",
+                        "-",
                     )
                 )
             for a in state.docker:

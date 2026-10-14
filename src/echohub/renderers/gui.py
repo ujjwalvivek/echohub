@@ -140,10 +140,10 @@ class DashboardGui:
         self._build_shell()
         self.root.bind("<Key>", self._key)
         self.root.after(40, self._tick)
-        
+
         def finish_native_window() -> None:
-            _apply_native_window_theme(self.root)        
-        
+            _apply_native_window_theme(self.root)
+
         self.root.after(
             80,
             finish_native_window,
@@ -717,7 +717,7 @@ class DashboardGui:
         def apply():
             self.status_var.set(update.message.upper())
             if not self._progressbar_visible:
-                self.progressbar.pack(side="right", padx=16, pady=14)
+                self.progressbar.pack(side="right", padx=16)
                 self._progressbar_visible = True
             if update.progress is None:
                 self.progressbar.configure(mode="indeterminate")
@@ -795,7 +795,11 @@ class DashboardGui:
                 "GitHub language bytes",
             ),
             ("Recent churn", compact(t.get("recent_churn", 0)), "cached commit sample"),
-            ("Artifacts", compact(t.get("packages", 0)), "npm · crates · docker"),
+            (
+                "Artifacts",
+                compact(t.get("packages", 0)),
+                "npm · crates · pypi · docker",
+            ),
             (
                 "Status",
                 f"{sum(s.ok for s in state.statuses)}/{len(state.statuses)}",
@@ -954,7 +958,7 @@ class DashboardGui:
         def row_values(p: Project):
             churn = sum(c.churn for c in p.commits)
             return (
-                p.alias,
+                f"🔒 {p.alias}" if p.private else p.alias,
                 p.dominant_language,
                 human_bytes(p.language_bytes),
                 human_kb(p.size_kb),
@@ -2089,6 +2093,23 @@ class DashboardGui:
                         "-",
                         "-",
                         relative_time(a.updated_at),
+                        a.license_name or "-",
+                    ),
+                )
+            for a in state.pypi:
+                tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        "pypi",
+                        a.name,
+                        a.alias,
+                        a.version,
+                        "-",
+                        "-",
+                        "-",
+                        "-",
+                        "-",
                         a.license_name or "-",
                     ),
                 )

@@ -43,3 +43,14 @@ def test_tui_projects_supports_semantic_horizontal_columns(
     after = app.frame()
     assert "PROJECT MATRIX" in before
     assert before != after
+
+
+def test_tui_sources_lists_pypi(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = EchopointEngine(DashboardConfig(cache_dir=tmp_path))
+    _ = engine.install_demo(demo_store())
+    monkeypatch.setattr("shutil.get_terminal_size", _terminal_size)
+    app = TuiApp(engine)
+    lines = app._sources(engine.state, 132, 38)  # pyright: ignore[reportPrivateUsage]
+    assert any("pypi" in line and "echohub" in line for line in lines)
