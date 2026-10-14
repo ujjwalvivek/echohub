@@ -15,15 +15,27 @@ GET /v1/health
        └── last_updated changed ────> GET /v1/store once
 ```
 
+With a token configured, the snapshot comes from `GET /v1/private` instead, which includes private repositories. A cached snapshot of the other kind is re-downloaded even if `last_updated` is unchanged.
+
 Manual refresh is explicit:
 
 ```text
 REFRESH
-  └─ request upstream refresh once
-       └─ wait while Echopoint works
+  └─ POST /v1/refresh, repeated until Echopoint's due queue is empty
+       └─ each call is one Worker run with a fixed fetch budget
   └─ verify last_updated
-       └─ download /v1/store once only if changed
+       └─ download the snapshot once only if changed
 ```
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ECHOHUB_SOURCE_URL` / `ECHOPOINT_URL` | production Echopoint | Upstream base URL |
+| `ECHOHUB_REFRESH_TOKEN` / `ECHOPOINT_REFRESH_TOKEN` | unset | Enables refresh and the private snapshot |
+| `ECHOHUB_CACHE_DIR` / `ECHOPOINT_CACHE_DIR` | `%LOCALAPPDATA%\echohub` or `~/.cache/echohub` | Snapshot location |
+| `ECHOHUB_TIMEOUT` | `20` | Seconds for health and snapshot requests |
+| `ECHOHUB_REFRESH_TIMEOUT` | `120` | Seconds for each upstream refresh call |
 
 ## Quick start
 
@@ -64,8 +76,8 @@ python run.py --demo tui
 | TUI Contributions     | `H/L` weeks                                              |
 | TUI Sources           | `T` tab, `J/K` rows                                      |
 | TUI Inspector         | `J/K` keys                                               |
-| GUI/Web tables        | wheel rows, Shift+wheel/trackpad columns                 |
-| GUI/Web constellation | wheel zoom, drag pan, click focus                        |
+| GUI tables            | wheel rows, Shift+wheel/trackpad columns                 |
+| GUI constellation     | wheel zoom, drag pan, click focus                        |
 
 ## License
 

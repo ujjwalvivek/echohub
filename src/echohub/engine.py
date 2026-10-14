@@ -15,11 +15,16 @@ from .normalize import (
     normalize_docker,
     normalize_meta,
     normalize_packages,
+    normalize_private_languages,
     normalize_projects,
     normalize_statuses,
     normalize_user,
 )
-from .types import JsonObject, as_str
+from .types import JsonObject, as_int, as_str
+
+# Guards against a server that never reports an empty queue. One pass covers
+# Echopoint's per-invocation fetch budget, so this bounds a full catch-up.
+MAX_REFRESH_PASSES = 60
 
 
 @dataclass(slots=True)
@@ -42,7 +47,7 @@ ProgressCallback = Callable[[ProgressUpdate], None]
 
 class EchopointClientProtocol(Protocol):
     def health(self) -> Health: ...
-    def store(self) -> JsonObject: ...
+    def store(self, *, private: bool = False) -> JsonObject: ...
     def refresh(self) -> JsonObject: ...
 
 
@@ -50,7 +55,8 @@ class EchopointClientProtocol(Protocol):
 class EchopointEngine:
     """Network rules:
     1. GET /v1/health to learn whether last_updated changed.
-    2. GET /v1/store only if it changed or no local snapshot exists.
+    2. GET /v1/store (or the token-only /v1/private) only if it changed, no
+       local snapshot exists, or the cached snapshot has the other visibility.
     3. Manual refresh calls Echopoint's /v1/refresh once, then re-syncs.
     """
 
@@ -84,6 +90,11 @@ class EchopointEngine:
             return self._state
 
     @property
+    def wants_private(self) -> bool:
+        """With a token, sync the full dump including private repositories."""
+        return bool(self.config.refresh_token)
+
+    @property
     def raw_store(self) -> JsonObject:
         with self._lock:
             return dict(self._raw)
@@ -101,10 +112,20 @@ class EchopointEngine:
         projects = normalize_projects(store)
         npm = normalize_packages(store, "npm")
         crates = normalize_packages(store, "crates")
+        pypi = normalize_packages(store, "pypi")
         docker = normalize_docker(store)
         statuses = normalize_statuses(store)
         user = normalize_user(store)
-        analytics = build_analytics(projects, npm, crates, docker)
+        # The sanitized aggregate sums the configured private repos. Once those
+        # repos arrive as real projects, counting it too would double them.
+        private_languages = (
+            {}
+            if any(project.private for project in projects)
+            else normalize_private_languages(store)
+        )
+        analytics = build_analytics(
+            projects, npm, crates, docker, private_languages, pypi=pypi
+        )
         state = DashboardState(
             meta=normalize_meta(
                 store,
@@ -120,6 +141,7 @@ class EchopointEngine:
             user=user,
             analytics=analytics,
             raw_key_count=len(store),
+            pypi=pypi,
         )
         with self._lock:
             self._raw = store
@@ -140,9 +162,11 @@ class EchopointEngine:
         self._remote_sources = health.sources
         cached = self.cache.load()
         current = cached.last_updated if cached else ""
+        private = self.wants_private
         if (
             cached
             and not force_store
+            and cached.private == private
             and health.last_updated
             and health.last_updated == current
         ):
@@ -153,14 +177,13 @@ class EchopointEngine:
             callback(ProgressUpdate("done", 1.0, "Local snapshot is already current"))
             return SyncResult(False, "cache", current, "No change")
 
+        route = "/v1/private" if private else "/v1/store"
         callback(
-            ProgressUpdate(
-                "store", 0.55, "Snapshot changed; downloading /v1/store once"
-            )
+            ProgressUpdate("store", 0.55, f"Snapshot changed; downloading {route} once")
         )
-        store = self.client.store()
+        store = self.client.store(private=private)
         last_updated = as_str(store.get("_meta:last_updated")) or health.last_updated
-        saved = self.cache.save(store, last_updated)
+        saved = self.cache.save(store, last_updated, private=private)
         callback(
             ProgressUpdate("normalize", 0.85, "Normalizing telemetry for all renderers")
         )
@@ -169,10 +192,32 @@ class EchopointEngine:
         return SyncResult(True, "network", saved.last_updated, "Updated")
 
     def refresh(self, progress: ProgressCallback | None = None) -> SyncResult:
+        """Drain Echopoint's due queue, then re-sync once.
+
+        Each /v1/refresh call is one Worker invocation with a fixed fetch
+        budget, so a single call only covers a slice of the due sources. Keep
+        asking until Echopoint reports nothing left over budget.
+        """
         callback = progress or _noop_progress
         callback(ProgressUpdate("refresh", 0.06, "Requesting source refresh"))
         callback(ProgressUpdate("refresh", None, "Echopoint is collecting telemetry"))
-        _ = self.client.refresh()
+        initial_due = 0
+        for attempt in range(1, MAX_REFRESH_PASSES + 1):
+            result = self.client.refresh()
+            processed = as_int(result.get("processed"))
+            remaining = as_int(result.get("budget_skipped"))
+            initial_due = initial_due or as_int(result.get("due"))
+            if remaining <= 0 or processed <= 0:
+                break
+            done = 1.0 - remaining / initial_due if initial_due else 0.0
+            callback(
+                ProgressUpdate(
+                    "refresh",
+                    0.06 + 0.72 * max(0.0, min(1.0, done)),
+                    f"Echopoint pass {attempt}: {processed} sources refreshed, "
+                    + f"{remaining} still queued",
+                )
+            )
         callback(
             ProgressUpdate("verify", 0.78, "Refresh returned; checking snapshot marker")
         )

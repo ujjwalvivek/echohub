@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import final
 
-from .types import JsonObject, as_object, as_str, decode_json_object
+from .types import JsonObject, as_bool, as_object, as_str, decode_json_object
 
 
 @dataclass(slots=True)
@@ -16,6 +16,8 @@ class CachedPayload:
     store: JsonObject
     last_updated: str
     fetched_at: str
+    # True when the snapshot came from the token-only /v1/private dump.
+    private: bool = False
 
 
 @final
@@ -36,11 +38,18 @@ class CacheStore:
                 store=as_object(payload.get("store")),
                 last_updated=as_str(payload.get("last_updated")),
                 fetched_at=as_str(payload.get("fetched_at")),
+                private=as_bool(payload.get("private")),
             )
         except (OSError, ValueError, TypeError):
             return None
 
-    def save(self, store: JsonObject, last_updated: str | None = None) -> CachedPayload:
+    def save(
+        self,
+        store: JsonObject,
+        last_updated: str | None = None,
+        *,
+        private: bool = False,
+    ) -> CachedPayload:
         self.directory.mkdir(parents=True, exist_ok=True)
         effective_updated = last_updated or as_str(store.get("_meta:last_updated"))
         fetched_at = datetime.now(UTC).isoformat()
@@ -48,6 +57,7 @@ class CacheStore:
             "version": 1,
             "last_updated": effective_updated,
             "fetched_at": fetched_at,
+            "private": private,
             "store": store,
         }
         fd, tmp_name = tempfile.mkstemp(
@@ -64,6 +74,7 @@ class CacheStore:
             store=store,
             last_updated=effective_updated,
             fetched_at=fetched_at,
+            private=private,
         )
 
     def clear(self) -> None:

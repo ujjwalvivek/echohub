@@ -18,7 +18,9 @@ from .types import (
 
 
 class EchopointError(RuntimeError):
-    pass
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 @dataclass(slots=True)
@@ -37,7 +39,14 @@ class EchopointClient:
     def __init__(self, config: DashboardConfig) -> None:
         self.config = config
 
-    def _request(self, path: str, *, token: bool = False) -> JsonValue:
+    def _request(
+        self,
+        path: str,
+        *,
+        token: bool = False,
+        method: str = "GET",
+        timeout: float | None = None,
+    ) -> JsonValue:
         headers = {
             "Accept": "application/json",
             "User-Agent": self.config.user_agent,
@@ -48,20 +57,24 @@ class EchopointClient:
         request = urllib.request.Request(
             f"{self.config.base_url}{path}",
             headers=headers,
-            method="GET",
+            # An empty body keeps POST explicit (Content-Length: 0) for proxies.
+            data=None if method == "GET" else b"",
+            method=method,
         )
         try:
             # urlopen's typeshed return is intentionally broad across URL/file
             # handlers. Runtime behavior is narrowed immediately by read/decode.
             with urllib.request.urlopen(  # pyright: ignore[reportAny]
                 request,
-                timeout=self.config.timeout_seconds,
+                timeout=timeout or self.config.timeout_seconds,
             ) as response:
                 body = response.read().decode("utf-8")  # pyright: ignore[reportAny]
             return decode_json_value(body)
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise EchopointError(f"HTTP {exc.code} for {path}: {detail[:300]}") from exc
+            raise EchopointError(
+                f"HTTP {exc.code} for {path}: {detail[:300]}", exc.code
+            ) from exc
         except (urllib.error.URLError, TimeoutError, ValueError) as exc:
             raise EchopointError(f"Request failed for {path}: {exc}") from exc
 
@@ -77,14 +90,34 @@ class EchopointClient:
             timestamp=as_str(data.get("timestamp")),
         )
 
-    def store(self) -> JsonObject:
-        data = self._request("/v1/store")
+    def store(self, *, private: bool = False) -> JsonObject:
+        """Download the snapshot; ``private`` uses the token-only full dump."""
+        path = "/v1/private" if private else "/v1/store"
+        try:
+            data = self._request(path, token=private)
+        except EchopointError as exc:
+            if private and exc.status == 404:
+                raise EchopointError(
+                    "Echopoint has no /v1/private route; deploy the latest Echopoint "
+                    + "or unset ECHOPOINT_REFRESH_TOKEN to use the public snapshot.",
+                    404,
+                ) from exc
+            if private and exc.status == 401:
+                raise EchopointError(
+                    "Echopoint rejected the refresh token for /v1/private.", 401
+                ) from exc
+            raise
         if not isinstance(data, dict):
-            raise EchopointError("/v1/store did not return a JSON object")
+            raise EchopointError(f"{path} did not return a JSON object")
         return data
 
     def refresh(self) -> JsonObject:
-        data = self._request("/v1/refresh", token=True)
+        data = self._request(
+            "/v1/refresh",
+            token=True,
+            method="POST",
+            timeout=self.config.refresh_timeout_seconds,
+        )
         if not isinstance(data, dict):
             raise EchopointError("/v1/refresh did not return a JSON object")
         if data.get("ok") is False:

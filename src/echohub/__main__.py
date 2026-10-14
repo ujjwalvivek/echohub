@@ -16,9 +16,6 @@ class CliArgs(argparse.Namespace):
     demo: bool = False
     offline: bool = False
     command: str | None = None
-    host: str = "127.0.0.1"
-    port: int = 8000
-    no_browser: bool = False
 
 
 def _progress(update: ProgressUpdate) -> None:
