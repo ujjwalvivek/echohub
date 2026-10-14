@@ -36,9 +36,18 @@ def test_progress_bar_has_room_to_show_its_fill(tmp_path: Path) -> None:
     try:
         gui._set_progress(ProgressUpdate("refresh", 0.4, "pass"))  # pyright: ignore[reportPrivateUsage]
         gui.root.update()
-        gui.root.update()
-        assert gui.progressbar.winfo_ismapped()
-        assert gui.progressbar.winfo_height() >= 10, "fill is invisible when squashed"
-        assert float(gui.progressbar.cget("value")) == 40.0
+        bar = gui.progressbar
+        # Check the layout arithmetic rather than on-screen size: CI desktops
+        # can create Tk windows without ever mapping them.
+        statusbar = bar.nametowidget(bar.winfo_parent())
+        inner = int(statusbar.cget("height")) - 2 * int(
+            statusbar.cget("highlightthickness")
+        )
+        pady = str(bar.pack_info().get("pady", 0)).split()
+        padding = sum(int(float(part)) for part in pady) * (2 if len(pady) == 1 else 1)
+        assert inner - padding >= bar.winfo_reqheight(), (
+            "padding squeezes the bar below its height, hiding the fill"
+        )
+        assert float(bar.cget("value")) == 40.0
     finally:
         gui.root.destroy()
