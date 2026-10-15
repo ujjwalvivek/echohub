@@ -6,3 +6,4 @@ dist/
 .pytest_cache/
 .cache/
 .ruff_cache/
+*-system.md
