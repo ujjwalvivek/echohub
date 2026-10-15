@@ -131,6 +131,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Qt system libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libfontconfig1
+
       - name: Install native build tooling
         shell: bash
         run: |
@@ -196,7 +200,8 @@ jobs:
             --onedir \
             --windowed \
             --collect-data echohub \
-            --hidden-import echohub.renderers.gui \
+            --hidden-import echohub.renderers.qt.app \
+            --exclude-module tkinter \
             --icon "$ICON" \
             .release/gui_launcher.py
 
@@ -208,7 +213,50 @@ jobs:
             --console \
             --collect-data echohub \
             --hidden-import echohub.renderers.tui \
+            --exclude-module PySide6 \
+            --exclude-module shiboken6 \
+            --exclude-module tkinter \
             .release/tui_launcher.py
+
+      # Launch both built apps before packaging them, so a bundle with a
+      # missing Qt plugin or data file fails here instead of reaching users.
+      # Python wraps the runs: macOS has no `timeout`, and a crashed
+      # windowed app could otherwise hang the job on an error dialog.
+      - name: Smoke-test the built apps
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+          ECHOHUB_EXIT_AFTER_MS: "2500"
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          import tempfile
+          from pathlib import Path
+
+          system = os.environ["RUNNER_OS"]
+          if system == "macOS":
+              gui = Path("dist/Echohub.app/Contents/MacOS/Echohub")
+          elif system == "Windows":
+              gui = Path("dist/Echohub/Echohub.exe")
+          else:
+              gui = Path("dist/Echohub/Echohub")
+          tui = Path("dist/echohub-tui.exe" if system == "Windows" else "dist/echohub-tui")
+
+          cache = tempfile.mkdtemp(prefix="echohub-smoke-")
+          runs = [
+              ("desktop app", [str(gui), "--demo", "--cache-dir", cache]),
+              ("terminal app", [str(tui), "--version"]),
+          ]
+          for name, command in runs:
+              result = subprocess.run(command, timeout=120, capture_output=True, text=True)
+              print(f"{name}: exit {result.returncode} {result.stdout.strip()}")
+              if result.returncode != 0:
+                  print(result.stderr, file=sys.stderr)
+                  raise SystemExit(f"{name} failed its smoke test")
+          PY
 
       - name: Package native apps
         shell: bash
@@ -378,10 +426,15 @@ jobs:
 
           \`\`\`bash
           pipx install echohub
-          echohub tui
+          echohub        # desktop app
+          echohub tui    # terminal app
           \`\`\`
 
-          The installed \`echohub\` command is placed on your user PATH by the tool installer. The same package can launch the desktop renderer with \`echohub gui\`.
+          The installed \`echohub\` command is placed on your user PATH by the tool installer.
+
+          ### Download the apps
+
+          The **GUI** zips are the desktop app (Qt) with everything bundled: unzip and run \`Echohub\`. The **TUI** zips are a single terminal executable. On Linux the desktop app needs the usual Qt system libraries (\`libxcb-cursor0\`, \`libegl1\`, \`libxkbcommon0\`), which most desktops already have.
           EOF
 
           if [[ -n "$PREVIOUS_TAG" ]]; then
