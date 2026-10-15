@@ -13,9 +13,18 @@ def test_parse_args_global_flags_before_command() -> None:
     assert args.command == "tui"
 
 
-def test_command_is_required() -> None:
-    with pytest.raises(SystemExit):
-        _ = parse_args([])
+def test_no_command_opens_the_desktop_app() -> None:
+    assert parse_args([]).command == "gui"
+    assert parse_args(["--offline"]).command == "gui"
+
+
+def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    from echohub import __version__
+
+    with pytest.raises(SystemExit) as exit_info:
+        _ = parse_args(["--version"])
+    assert exit_info.value.code == 0
+    assert capsys.readouterr().out.strip() == f"echohub {__version__}"
 
 
 def test_demo_inspect_prints_dashboard_json(
@@ -47,3 +56,18 @@ def test_offline_uses_existing_snapshot(
     _ = capsys.readouterr()
     assert main(["--offline", "--cache-dir", str(tmp_path), "inspect"]) == 0
     assert json.loads(capsys.readouterr().out)["meta"]["from_cache"] is True
+
+
+def test_gui_never_blocks_startup_on_the_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from echohub.__main__ import make_engine, parse_args
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "echohub.engine.EchopointEngine.sync",
+        lambda *_args, **_kwargs: calls.append("sync"),
+    )
+    engine = make_engine(parse_args(["--cache-dir", str(tmp_path), "gui"]))
+    assert calls == [], "the window checks in the background instead"
+    assert not engine.has_data

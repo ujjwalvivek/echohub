@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from . import __version__
 from .config import DashboardConfig
 from .demo import demo_store
 from .engine import EchopointEngine, ProgressUpdate
@@ -32,6 +33,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--url",
         help="Upstream telemetry URL (default: ECHOHUB_SOURCE_URL or production Echopoint)",
     )
+    _ = parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
     _ = parser.add_argument("--cache-dir", help="Override local snapshot directory")
     _ = parser.add_argument(
         "--demo",
@@ -43,22 +47,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Use the local snapshot without a health check",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    # With no command, open the desktop app.
+    sub = parser.add_subparsers(dest="command", required=False)
     _ = sub.add_parser(
-        "sync", help="Check last_updated and download /v1/store only if changed"
+        "sync",
+        help="Download the snapshot only if Echopoint changed "
+        "(private repos included with a token)",
     )
     _ = sub.add_parser(
         "refresh",
-        help="Run the upstream refresh once, then re-sync the changed snapshot",
+        help="Ask Echopoint to refresh until its queue is empty, then re-sync",
     )
     _ = sub.add_parser("inspect", help="Print normalized dashboard state as JSON")
     _ = sub.add_parser("tui", help="Launch the terminal renderer")
-    _ = sub.add_parser("gui", help="Launch the Tk desktop renderer")
+    _ = sub.add_parser("gui", help="Launch the desktop app (default)")
     return parser
 
 
 def parse_args(argv: list[str] | None = None) -> CliArgs:
-    return build_parser().parse_args(argv, namespace=CliArgs())
+    args = build_parser().parse_args(argv, namespace=CliArgs())
+    if args.command is None:
+        args.command = "gui"
+    return args
 
 
 def make_engine(args: CliArgs) -> EchopointEngine:
@@ -72,6 +82,10 @@ def make_engine(args: CliArgs) -> EchopointEngine:
         _ = engine.install_demo(demo_store())
         return engine
     had_cache = engine.load_cache()
+    if args.command == "gui":
+        # The window opens at once and checks in the background, so a slow or
+        # unreachable Echopoint never blocks or prevents startup.
+        return engine
     if args.command in {"sync", "refresh"}:
         if args.offline:
             raise SystemExit(
@@ -112,9 +126,9 @@ def main(argv: list[str] | None = None) -> int:
 
             run_tui(engine)
         elif args.command == "gui":
-            from .renderers.gui import run_gui
+            from .renderers.qt.app import run_qt
 
-            run_gui(engine)
+            run_qt(engine, auto_check=not args.offline and not args.demo)
         return 0
     except KeyboardInterrupt:
         return 130
