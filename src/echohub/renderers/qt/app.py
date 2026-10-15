@@ -20,6 +20,7 @@ from PySide6.QtCore import (
     QThreadPool,
     QTimer,
     Signal,
+    SignalInstance,
 )
 from PySide6.QtGui import (
     QColor,
@@ -42,6 +43,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from ... import __version__
 from ...client import explain_error
@@ -128,17 +130,44 @@ class _EngineTask(QRunnable):
     ) -> None:
         super().__init__()
         self.signals = _TaskSignals()
+        self.cancelled = False
         self._work = work
         self._explain = explain
 
+    def cancel(self) -> None:
+        """Stop at the next progress step; the window is going away."""
+        self.cancelled = True
+
     def run(self) -> None:
         try:
-            result = self._work(self.signals.progress.emit)
+            result = self._work(self._progress)
+        except _Cancelled:
+            return
         except Exception as exc:  # noqa: BLE001 > background task boundary
             title, detail = self._explain(exc)
-            self.signals.failed.emit(f"{title}\n{detail}")
+            self._emit(self.signals.failed, f"{title}\n{detail}")
         else:
-            self.signals.done.emit(result)
+            self._emit(self.signals.done, result)
+
+    def _progress(self, update: ProgressUpdate) -> None:
+        if self.cancelled:
+            raise _Cancelled
+        self._emit(self.signals.progress, update)
+
+    def _emit(self, signal: SignalInstance, value: object) -> None:
+        # Closing the window mid-sync can delete the signals while this
+        # thread still runs; with no one left to tell, finish quietly.
+        if self.cancelled:
+            return
+        try:
+            signal.emit(value)
+        except RuntimeError:
+            if isValid(self.signals):
+                raise
+
+
+class _Cancelled(BaseException):
+    """Unwinds a cancelled task; BaseException so no `except Exception` eats it."""
 
 
 class MainWindow(QWidget):
@@ -425,6 +454,11 @@ class MainWindow(QWidget):
             self.welcome.show_progress("Connecting to Echopoint", None)
         QThreadPool.globalInstance().start(task)
 
+    def cancel_work(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            self._task = None
+
     def _set_busy(self, busy: bool) -> None:
         self.refresh_button.setEnabled(not busy and self._can_refresh)
         self.refresh_button.set_spinning(busy)
@@ -594,6 +628,9 @@ def run_qt(engine: EchopointEngine, *, auto_check: bool = False) -> None:
     if exit_after.isdigit():
         QTimer.singleShot(int(exit_after), app.quit)
     app.exec()
+    # Closed mid-sync: stop the sync at its next step. Qt waits for the
+    # worker before the process ends, so this keeps that wait short.
+    window.cancel_work()
 
 
 def snapshot(

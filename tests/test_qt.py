@@ -1,4 +1,5 @@
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,7 @@ from PySide6.QtGui import QImage
 
 from echohub.config import DashboardConfig
 from echohub.demo import demo_store
-from echohub.engine import EchopointEngine
+from echohub.engine import EchopointEngine, ProgressUpdate
 from echohub.renderers.qt.app import MainWindow, create_app, snapshot
 
 
@@ -117,3 +118,42 @@ def test_refresh_without_a_token_explains_instead_of_failing(tmp_path: Path) -> 
     finally:
         window.deleteLater()
         app.processEvents()
+
+
+def test_task_finishes_quietly_after_the_window_is_gone() -> None:
+    from shiboken6 import delete
+
+    from echohub.renderers.qt.app import (
+        _EngineTask,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    def work(progress: Callable[[ProgressUpdate], None]) -> object:
+        delete(task.signals)  # what closing the window mid-sync does
+        progress(ProgressUpdate("fetch", 0.5, "Downloading"))
+        raise OSError("connection reset")
+
+    task = _EngineTask(work, lambda exc: ("Failed", str(exc)))
+    task.run()  # neither the progress nor the failure may raise
+
+
+def test_cancelled_task_stops_at_the_next_step() -> None:
+    from echohub.renderers.qt.app import (
+        _EngineTask,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    steps: list[str] = []
+
+    def work(progress: Callable[[ProgressUpdate], None]) -> object:
+        progress(ProgressUpdate("health", 0.1, "Checking"))
+        steps.append("health")
+        task.cancel()  # the window closed
+        progress(ProgressUpdate("fetch", 0.5, "Downloading"))
+        steps.append("fetch")
+        return None
+
+    task = _EngineTask(work, lambda exc: ("Failed", str(exc)))
+    finished: list[object] = []
+    task.signals.done.connect(finished.append)
+    task.run()
+    assert steps == ["health"]
+    assert finished == []
