@@ -1,61 +1,44 @@
-"""Rose Pine tokens for the Qt renderer.
+"""Qt tokens: type scale, spacing, fonts and the stylesheet.
 
-Surfaces use Rose Pine's darkest variant (main, base #191724). Accents and the
-type scale follow devhub-gpui and helide's Foundation.xaml so the apps read as
-one family. Corners are square throughout, like Zed.
+Colours come from the shared Rose Pine palette (``echohub.palette``). Accents
+and the type scale follow devhub-gpui and helide's Foundation.xaml so the apps
+read as one family. Corners are square throughout, like Zed.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 
 from PySide6.QtGui import QColor, QFont, QFontDatabase
 
-# Surfaces, darkest first.
-BASE = "#191724"
-PANEL = "#1f1d2e"
-SURFACE = "#26233a"
-HOVER = "#26233a"
-SELECTED = "#2f2c45"
-BORDER = "#2a2740"
-BORDER_STRONG = "#403d52"
+from ... import palette
 
-# Text.
-TEXT = "#e0def4"
-SUBTLE = "#908caa"
-MUTED = "#6e6a86"
-
-# Rose Pine accents and their roles.
-ROSE = "#ebbcba"  # app accent
-LOVE = "#eb6f92"  # error
-GOLD = "#f6c177"  # warning
-FOAM = "#9ccfd8"  # positive / up
-PINE = "#31748f"
-IRIS = "#c4a7e7"
-
-ACCENT = ROSE
-# The red every Windows close button uses; devhub-gpui matches it too.
-SUCCESS = FOAM
-WARNING = GOLD
-ERROR = LOVE
-
-# Series colours for categories (languages), in Rose Pine order.
-SERIES = (
-    FOAM,
-    ROSE,
-    IRIS,
-    GOLD,
-    PINE,
-    LOVE,
-    "#a3be8c",
-    "#d7827e",
-    "#56949f",
-    "#907aa9",
-)
-
-# Contribution heatmap, empty to busiest.
-HEAT = ("#2a2740", "#24435a", "#31748f", "#5fa2b4", "#9ccfd8")
+# Colours are shared with the terminal renderer; named here so pages keep
+# writing T.TEXT, T.series_color() and so on.
+BASE = palette.BASE
+PANEL = palette.PANEL
+SURFACE = palette.SURFACE
+HOVER = palette.HOVER
+SELECTED = palette.SELECTED
+BORDER = palette.BORDER
+BORDER_STRONG = palette.BORDER_STRONG
+TEXT = palette.TEXT
+SUBTLE = palette.SUBTLE
+MUTED = palette.MUTED
+ROSE = palette.ROSE
+LOVE = palette.LOVE
+GOLD = palette.GOLD
+FOAM = palette.FOAM
+PINE = palette.PINE
+IRIS = palette.IRIS
+ACCENT = palette.ACCENT
+SUCCESS = palette.SUCCESS
+WARNING = palette.WARNING
+ERROR = palette.ERROR
+SERIES = palette.SERIES
+HEAT = palette.HEAT
+rank_series = palette.rank_series
+series_color = palette.series_color
 
 # Type scale in pixels (helide: caption 9 … title 27).
 CAPTION = 9
@@ -111,28 +94,6 @@ def font(
 
 def color(value: str) -> QColor:
     return QColor(value)
-
-
-_RANKED: dict[str, str] = {}
-
-
-def rank_series(names: Iterable[str]) -> None:
-    """Hand out SERIES colours in rank order (biggest language first), so the
-    categories that matter most get the most distinct colours."""
-    _RANKED.clear()
-    for index, name in enumerate(names):
-        _RANKED[name] = SERIES[index % len(SERIES)]
-
-
-def series_color(name: str) -> str:
-    """The colour for a category, the same in every view."""
-    if name == "No code":
-        return MUTED
-    ranked = _RANKED.get(name)
-    if ranked is not None:
-        return ranked
-    total = sum((index + 1) * ord(char) for index, char in enumerate(name))
-    return SERIES[total % len(SERIES)]
 
 
 def stylesheet(fonts: Fonts) -> str:
