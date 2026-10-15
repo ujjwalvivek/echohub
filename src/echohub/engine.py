@@ -90,6 +90,15 @@ class EchopointEngine:
             return self._state
 
     @property
+    def has_data(self) -> bool:
+        """True when a snapshot is available, loading the saved one if needed
+        (the same lazy load ``state`` does)."""
+        with self._lock:
+            if self._state is None:
+                _ = self.load_cache()
+            return self._state is not None
+
+    @property
     def wants_private(self) -> bool:
         """With a token, sync the full dump including private repositories."""
         return bool(self.config.refresh_token)
