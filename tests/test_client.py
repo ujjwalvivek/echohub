@@ -180,3 +180,30 @@ def test_private_store_explains_missing_route_and_bad_token(
     with pytest.raises(EchopointError, match=message) as info:
         _ = make_client(refresh_token="secret").store(private=True)
     assert info.value.status == status
+
+
+def test_explain_error_turns_failures_into_plain_words() -> None:
+    from echohub.client import EchopointError, explain_error
+
+    url = "https://echopoint.example.com"
+
+    def explain(exc: BaseException, token: bool = True) -> tuple[str, str]:
+        return explain_error(exc, base_url=url, has_token=token)
+
+    refused = EchopointError(
+        "Request failed for /v1/health: <urlopen error [WinError 10061] refused>"
+    )
+    assert explain(refused) == (
+        "Can't reach Echopoint",
+        "Nothing is answering at echopoint.example.com.",
+    )
+    assert explain(EchopointError("Request failed: timed out"))[0] == (
+        "Echopoint isn't responding"
+    )
+    assert explain(EchopointError("getaddrinfo failed"))[0] == "Can't find Echopoint"
+    assert explain(EchopointError("HTTP 401", 401))[0] == "Echopoint rejected the token"
+    assert explain(EchopointError("HTTP 401", 401), token=False)[0] == (
+        "Refresh needs a token"
+    )
+    assert explain(EchopointError("HTTP 503", 503))[0] == "Echopoint had an error"
+    assert explain(ValueError("odd")) == ("Sync failed", "odd")

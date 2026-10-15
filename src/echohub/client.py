@@ -23,6 +23,60 @@ class EchopointError(RuntimeError):
         self.status = status
 
 
+def explain_error(
+    exc: BaseException, *, base_url: str, has_token: bool
+) -> tuple[str, str]:
+    """A short title and one plain sentence for a failed sync or refresh.
+
+    The raw message is technical (urllib reasons, HTTP bodies); people need
+    to know what happened and what to try.
+    """
+    text = str(exc)
+    lowered = text.casefold()
+    status = exc.status if isinstance(exc, EchopointError) else None
+    host = base_url.split("://", 1)[-1].split("/", 1)[0]
+    if status == 401:
+        if not has_token:
+            return (
+                "Refresh needs a token",
+                "Set ECHOHUB_REFRESH_TOKEN to refresh and to include private repos.",
+            )
+        return (
+            "Echopoint rejected the token",
+            "ECHOHUB_REFRESH_TOKEN doesn't match Echopoint's. Check the value "
+            + "and restart Echohub.",
+        )
+    if status == 404 and "/v1/private" in text:
+        return ("Echopoint is out of date", text)
+    if status == 429:
+        return (
+            "Echopoint is busy",
+            "It's rate limiting requests. Try again in a minute.",
+        )
+    if status is not None and status >= 500:
+        return (
+            "Echopoint had an error",
+            f"It answered HTTP {status}. Try again later.",
+        )
+    if status is not None:
+        return (f"Echopoint answered HTTP {status}", text)
+    if "refused" in lowered or "10061" in lowered:
+        return ("Can't reach Echopoint", f"Nothing is answering at {host}.")
+    if "timed out" in lowered or "timeout" in lowered:
+        return (
+            "Echopoint isn't responding",
+            f"{host} didn't answer in time. Check your connection.",
+        )
+    if "getaddrinfo" in lowered or "name or service" in lowered or "11001" in lowered:
+        return (
+            "Can't find Echopoint",
+            f"{host} doesn't resolve. Check your connection or ECHOHUB_SOURCE_URL.",
+        )
+    if "ssl" in lowered or "certificate" in lowered:
+        return ("Secure connection failed", f"Couldn't verify {host}'s certificate.")
+    return ("Sync failed", text)
+
+
 @dataclass(slots=True)
 class Health:
     ok: bool
