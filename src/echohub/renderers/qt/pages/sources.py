@@ -313,7 +313,8 @@ class SourcesPage(QWidget):
             fill=True,
         )
         self.cadence = AreaChart(fonts.ui, fonts.mono, T.IRIS)
-        self.cadence.set_points(labels, list[int | None](counts))
+        values: list[int | None] = list(counts)
+        self.cadence.set_points(labels, values)
         cadence_card.add(self.cadence)
 
         status_card = Card("Status checks", "double-click opens the address")

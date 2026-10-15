@@ -193,18 +193,18 @@ class LanguagesPage(QWidget):
         composition.body.addLayout(legend)
 
         largest = _largest_repos(state)
-        columns: list[Column[LanguageSlice]] = [
-            COLUMNS[0],
-            Column[LanguageSlice](
-                "Largest repo",
-                lambda s: largest.get(s.language, ("", 0))[0].lower(),
-                lambda s: _largest_text(largest.get(s.language)),
-                width=220,
-                kind="muted",
-                help="The repo with the most code in this language",
-            ),
-            *COLUMNS[1:],
-        ]
+        # Annotate the variable, not the call: Column[LanguageSlice](...) sets
+        # __orig_class__ on the instance, which a frozen slots dataclass
+        # rejects on Python 3.11.
+        largest_column: Column[LanguageSlice] = Column(
+            "Largest repo",
+            lambda s: largest.get(s.language, ("", 0))[0].lower(),
+            lambda s: _largest_text(largest.get(s.language)),
+            width=220,
+            kind="muted",
+            help="The repo with the most code in this language",
+        )
+        columns = [COLUMNS[0], largest_column, *COLUMNS[1:]]
         self.table: RecordTable[LanguageSlice] = RecordTable(columns, slices, fonts)
         self.table.sort_by("Bytes")
         ledger = QVBoxLayout()
