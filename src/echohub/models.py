@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import TypedDict, cast
 
-from .types import JsonObject, JsonValue, as_int
+from .types import JsonObject, JsonValue, as_array, as_int, as_object, as_str
 
 
 @dataclass(slots=True)
@@ -15,6 +15,8 @@ class Commit:
     date: str = ""
     additions: int = 0
     deletions: int = 0
+    # Bot or scripted commits (e.g. a daily log job); views can fold these away.
+    automated: bool = False
 
     @property
     def churn(self) -> int:
@@ -69,12 +71,12 @@ class Project:
     contributors: list[Contributor] = field(default_factory=list)
     tags: list[JsonObject] = field(default_factory=list)
     deployments: list[JsonObject] = field(default_factory=list)
-    activity_score: float = 0.0
 
     @property
     def dominant_language(self) -> str:
         if not self.languages:
-            return "Unknown"
+            # GitHub reports no languages for prose-only repos (docs, logs).
+            return "No code"
         return max(self.languages.items(), key=lambda kv: kv[1])[0]
 
     @property
@@ -172,17 +174,21 @@ class EngineMeta:
     from_cache: bool = False
     remote_sources: int | None = None
 
+    @property
+    def collector_failures(self) -> list[JsonObject]:
+        """Failures from Echopoint's last run that are real problems.
 
-@dataclass(slots=True)
-class ConstellationNode:
-    alias: str
-    x: float
-    y: float
-    size: float
-    activity: float
-    language: str
-    stars: int
-    commits: int
+        A 404 from a repo's latest-release endpoint only means the repo has
+        no releases; older Echopoint versions reported it as a failure.
+        """
+        failures: list[JsonObject] = []
+        for item in as_array(self.last_run.get("failures")):
+            failure = as_object(item)
+            key = as_str(failure.get("key"))
+            if as_int(failure.get("status")) == 404 and key.endswith(":release"):
+                continue
+            failures.append(failure)
+        return failures
 
 
 @dataclass(slots=True)
@@ -210,29 +216,15 @@ class CommitWaveRow(TypedDict):
     additions: int
     deletions: int
     churn: int
-
-
-class EcosystemArtifactRow(TypedDict):
-    type: str
-    version: str
-    name: str
-
-
-class EcosystemLinkRow(TypedDict):
-    alias: str
-    project: str | None
-    link_kind: str
-    artifacts: list[EcosystemArtifactRow]
+    automated: bool
 
 
 @dataclass(slots=True)
 class DashboardAnalytics:
     totals: dict[str, int | float] = field(default_factory=dict)
     languages: list[LanguageSlice] = field(default_factory=list)
-    constellation_nodes: list[ConstellationNode] = field(default_factory=list)
     constellation_edges: list[ConstellationEdge] = field(default_factory=list)
     commit_wave: list[CommitWaveRow] = field(default_factory=list)
-    ecosystem_links: list[EcosystemLinkRow] = field(default_factory=list)
 
 
 @dataclass(slots=True)

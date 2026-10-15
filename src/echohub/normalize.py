@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections import defaultdict
+import re
+from collections import Counter, defaultdict
 
 from .models import (
     Commit,
@@ -66,6 +67,20 @@ def _commits(value: JsonValue | None) -> list[Commit]:
     return result
 
 
+_DIGITS = re.compile(r"\d+")
+# Three commits with the same message shape inside one repo's recent sample
+# is a script, not a person.
+_AUTOMATED_REPEATS = 3
+
+
+def _mark_automated(commits: list[Commit]) -> None:
+    shapes = Counter(_DIGITS.sub("#", commit.message) for commit in commits)
+    for commit in commits:
+        commit.automated = commit.author.lower().endswith("[bot]") or (
+            shapes[_DIGITS.sub("#", commit.message)] >= _AUTOMATED_REPEATS
+        )
+
+
 def _contributors(value: JsonValue | None) -> list[Contributor]:
     result: list[Contributor] = []
     for item in as_array(value):
@@ -115,6 +130,8 @@ def normalize_projects(store: JsonObject) -> list[Project]:
         topics = [
             item for item in as_array(repo.get("topics")) if isinstance(item, str)
         ]
+        commits = _commits(values.get("commits"))
+        _mark_automated(commits)
         project = Project(
             alias=alias,
             name=as_str(repo.get("name"), alias),
@@ -141,7 +158,7 @@ def normalize_projects(store: JsonObject) -> list[Project]:
             owner_login=as_str(owner.get("login"))
             or as_str(as_object(values.get("user")).get("login")),
             languages=languages,
-            commits=_commits(values.get("commits")),
+            commits=commits,
             latest_release=latest_release,
             releases=releases,
             contributors=_contributors(values.get("contributors")),
@@ -160,8 +177,14 @@ def normalize_packages(store: JsonObject, prefix: str) -> list[PackageArtifact]:
         if not key.startswith(prefix + ":"):
             continue
         alias = key.split(":", 1)[1]
+        if ":" in alias:
+            # Companion records such as npm:<alias>:time, merged below.
+            continue
         data = as_object(value)
         if prefix == "npm":
+            published = as_object(store.get(f"npm:{alias}:time"))
+            monthly = as_object(store.get(f"npm:{alias}:downloads"))
+            monthly_value = monthly.get("downloads")
             dist = as_object(data.get("dist"))
             deps = as_object(data.get("dependencies"))
             repository = data.get("repository")
@@ -178,8 +201,12 @@ def normalize_packages(store: JsonObject, prefix: str) -> list[PackageArtifact]:
                     name=as_str(data.get("name"), alias),
                     version=as_str(data.get("version")),
                     description=as_str(data.get("description")),
-                    updated_at=as_str(dist.get("timestamp"))
+                    updated_at=as_str(published.get("published_at"))
+                    or as_str(dist.get("timestamp"))
                     or as_str(data.get("date")),
+                    recent_downloads=as_int(monthly_value)
+                    if monthly_value is not None
+                    else None,
                     size_bytes=size or None,
                     file_count=files or None,
                     dependency_count=len(deps),

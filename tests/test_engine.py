@@ -223,3 +223,22 @@ def test_private_aggregate_is_dropped_once_private_projects_load(
     assert zig.private_bytes == 0
     assert zig.projects == 1
     assert any(p.alias == "secret" and p.private for p in state.projects)
+
+
+def test_missing_releases_are_not_collector_failures() -> None:
+    from echohub.models import EngineMeta
+
+    meta = EngineMeta(
+        last_run={
+            "failed": 3,
+            "failures": [
+                {"key": "github:resume:release", "status": 404},
+                {"key": "docker:synclippy:tags", "status": 429},
+                {"key": "github:x:repo", "status": 404},
+            ],
+        }
+    )
+    assert [f["key"] for f in meta.collector_failures] == [
+        "docker:synclippy:tags",
+        "github:x:repo",
+    ]

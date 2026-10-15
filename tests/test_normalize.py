@@ -8,7 +8,7 @@ from echohub.normalize import (
     normalize_statuses,
     normalize_user,
 )
-from echohub.types import JsonObject
+from echohub.types import JsonObject, JsonValue
 
 
 def test_demo_normalizes_all_families():
@@ -55,9 +55,8 @@ def test_analytics_are_shared_visual_projections():
     assert analytics.totals["projects"] == 7
     assert analytics.totals["commits"] > 0
     assert analytics.languages[0].bytes > 0
-    assert len(analytics.constellation_nodes) == len(projects)
+    assert analytics.constellation_edges
     assert analytics.commit_wave
-    assert analytics.ecosystem_links
 
 
 def test_private_language_aggregate_is_not_a_project():
@@ -108,3 +107,45 @@ def test_pypi_packages_normalize_from_echopoint_shape():
     assert package.description == "Local-first telemetry deck."
     assert package.homepage == ""
     assert package.raw["requires_python"] == ">=3.11"
+
+
+def test_scripted_and_bot_commits_are_marked_automated():
+    rnd_commits: list[JsonValue] = [
+        {"message": f"Update dev log [{n}] [daily-rnd 2026-10-1{n}]", "author": "me"}
+        for n in range(3)
+    ]
+    rnd_commits.append({"message": "feat: real work", "author": "me"})
+    store: JsonObject = {
+        "github:rnd:repo": {"name": "rnd"},
+        "github:rnd:commits": rnd_commits,
+        "github:app:repo": {"name": "app"},
+        "github:app:commits": [
+            {"message": "chore(deps): bump x", "author": "dependabot[bot]"},
+            {"message": "fix: thing 1", "author": "me"},
+            {"message": "fix: thing 2", "author": "me"},
+        ],
+    }
+    projects = {p.alias: p for p in normalize_projects(store)}
+    assert [c.automated for c in projects["rnd"].commits] == [True, True, True, False]
+    assert [c.automated for c in projects["app"].commits] == [True, False, False], (
+        "two similar human commits are not a pattern"
+    )
+
+
+def test_prose_only_repo_reports_no_code():
+    (project,) = normalize_projects({"github:notes:repo": {"name": "notes"}})
+    assert project.dominant_language == "No code"
+
+
+def test_npm_companion_records_fill_dates_and_downloads():
+    store: JsonObject = {
+        "npm:engine": {"name": "@me/engine", "version": "1.3.0"},
+        "npm:engine:time": {"published_at": "2026-04-30T00:00:00Z", "versions": 4},
+        "npm:engine:downloads": {"downloads": 321},
+        "npm:bare": {"name": "bare", "version": "0.1.0"},
+    }
+    packages = {p.alias: p for p in normalize_packages(store, "npm")}
+    assert set(packages) == {"engine", "bare"}, "companion keys are not packages"
+    assert packages["engine"].updated_at == "2026-04-30T00:00:00Z"
+    assert packages["engine"].recent_downloads == 321
+    assert packages["bare"].recent_downloads is None

@@ -1,12 +1,5 @@
-from datetime import UTC, datetime, timedelta
 
-from echohub.analytics import (
-    build_analytics,
-    constellation,
-    ecosystem_links,
-    language_slices,
-    score_projects,
-)
+from echohub.analytics import build_analytics, constellation_edges, language_slices
 from echohub.demo import demo_store
 from echohub.models import PackageArtifact, Project
 from echohub.normalize import normalize_projects
@@ -59,45 +52,14 @@ def test_build_analytics_reports_private_bytes_in_totals() -> None:
     assert analytics.totals["private_language_bytes"] == 40
 
 
-def test_recent_activity_scores_higher() -> None:
-    now = datetime.now(UTC)
-    fresh = project("fresh", {}, pushed_at=now.isoformat())
-    stale = project("stale", {}, pushed_at=(now - timedelta(days=400)).isoformat())
-    undated = project("undated", {}, pushed_at="not a date")
-    score_projects([fresh, stale, undated])
-    assert fresh.activity_score > stale.activity_score
-    assert stale.activity_score == undated.activity_score
-
-
-def test_constellation_is_deterministic_and_links_similar_projects() -> None:
+def test_constellation_edges_link_similar_projects() -> None:
     projects = normalize_projects(demo_store())
-    first = constellation(projects)
-    second = constellation(list(reversed(projects)))
-    positions = {node.alias: (node.x, node.y) for node in first[0]}
-    assert positions == {node.alias: (node.x, node.y) for node in second[0]}
-    assert len(first[0]) == len(projects)
-    for edge in first[1]:
+    edges = constellation_edges(projects)
+    assert edges
+    assert edges == constellation_edges(list(reversed(projects))), "order-independent"
+    for edge in edges:
         assert edge.source != edge.target
         assert 0.0 <= edge.similarity <= 1.0
-
-
-def test_ecosystem_links_match_exact_and_prefix_aliases() -> None:
-    projects = [project("journey", {}), project("echopoint", {})]
-    links = ecosystem_links(
-        projects,
-        [
-            package("echopoint", "@scope/echopoint"),
-            package("journey-engine", "@scope/journey-engine"),
-            package("unrelated", "@scope/unrelated"),
-        ],
-        [],
-        [],
-    )
-    by_alias = {link["alias"]: link for link in links}
-    assert by_alias["echopoint"]["link_kind"] == "exact"
-    assert by_alias["journey-engine"]["project"] == "journey"
-    assert by_alias["journey-engine"]["link_kind"] == "prefix"
-    assert by_alias["unrelated"]["project"] is None
 
 
 def test_pypi_packages_count_and_link_to_projects() -> None:
@@ -105,6 +67,3 @@ def test_pypi_packages_count_and_link_to_projects() -> None:
     pypi = [PackageArtifact(ecosystem="pypi", alias="echohub", name="echohub")]
     analytics = build_analytics(projects, [], [], [], pypi=pypi)
     assert analytics.totals["packages"] == 1
-    (link,) = analytics.ecosystem_links
-    assert link["project"] == "echohub"
-    assert link["artifacts"][0]["type"] == "pypi"
