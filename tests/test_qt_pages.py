@@ -244,7 +244,7 @@ def test_series_colours_follow_rank() -> None:
 
 
 def test_release_cadence_counts_by_month(engine: EchopointEngine) -> None:
-    from echohub.renderers.qt.pages.sources import release_cadence
+    from echohub.insights import release_cadence
 
     labels, counts = release_cadence(engine.state, months=12)
     assert len(labels) == len(counts) == 12

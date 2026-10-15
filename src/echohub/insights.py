@@ -5,7 +5,7 @@ views. No UI code, so every number can be tested directly.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from .models import DashboardState, Project
 from .today import HeatmapDay, YearSummary, contribution_counts, year_summary
@@ -163,3 +163,81 @@ def commit_ledger(projects: list[Project]) -> list[LedgerCommit]:
     ]
     rows.sort(key=lambda row: row.date, reverse=True)
     return rows
+
+
+_PERIODS = {"npm": "month", "crates": "90 days"}
+
+
+@dataclass(slots=True)
+class RegistryRow:
+    registry: str
+    name: str
+    version: str
+    downloads: int | None
+    recent: int | None
+    recent_period: str
+    size: int | None
+    updated: str
+    license: str
+    url: str
+
+
+def registry_rows(state: DashboardState) -> list[RegistryRow]:
+    rows = [
+        RegistryRow(
+            item.ecosystem,
+            item.name,
+            item.version,
+            item.downloads,
+            item.recent_downloads,
+            _PERIODS.get(item.ecosystem, ""),
+            item.size_bytes,
+            item.updated_at,
+            item.license_name,
+            item.homepage or item.repository_url,
+        )
+        for item in (*state.npm, *state.crates, *state.pypi)
+    ]
+    rows += [
+        RegistryRow(
+            "docker",
+            image.alias,
+            image.latest_tag,
+            None,
+            None,
+            "",
+            image.latest_size_bytes,
+            image.latest_updated_at,
+            "",
+            "",
+        )
+        for image in state.docker
+    ]
+    return rows
+
+
+CADENCE_MONTHS = 12
+
+
+def release_cadence(state: DashboardState, months: int) -> tuple[list[str], list[int]]:
+    """Releases published per calendar month, oldest first, ending this month."""
+    today = datetime.now(UTC).date()
+    keys: list[tuple[int, int]] = []
+    year, month = today.year, today.month
+    for _ in range(months):
+        keys.append((year, month))
+        year, month = (year, month - 1) if month > 1 else (year - 1, 12)
+    keys.reverse()
+    counts = dict.fromkeys(keys, 0)
+    for project in state.projects:
+        releases = project.releases or (
+            [project.latest_release] if project.latest_release else []
+        )
+        for release in releases:
+            stamp = release.published_at[:7]
+            if len(stamp) == 7 and stamp[4] == "-":
+                key = (int(stamp[:4]), int(stamp[5:7]))
+                if key in counts:
+                    counts[key] += 1
+    labels = [date(y, m, 1).strftime("%b" if m != 1 else "%b %y") for y, m in keys]
+    return labels, [counts[key] for key in keys]
