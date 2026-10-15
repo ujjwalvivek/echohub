@@ -472,6 +472,7 @@ else:
 
     def install_chrome(window: QWidget) -> None:
         window.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        window.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, False)
 
     def handle_native_event(
         window: QWidget, title_bar: TitleBar, event_type: bytes, message: int
