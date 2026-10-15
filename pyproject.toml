@@ -51,6 +51,10 @@ testpaths = ["tests"]
 addopts = "-q"
 
 [dependency-groups]
+# What `uv sync` installs for development. Keep in step with the `dev` extra
+# above, which CI installs through pip.
 dev = [
     "ruff>=0.16.4",
+    "pytest>=8",
+    "basedpyright>=1.31",
 ]

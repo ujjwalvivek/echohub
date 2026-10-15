@@ -39,6 +39,8 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "basedpyright" },
+    { name = "pytest" },
     { name = "ruff" },
 ]
 
@@ -51,7 +53,11 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.16.4" }]
+dev = [
+    { name = "basedpyright", specifier = ">=1.31" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "ruff", specifier = ">=0.16.4" },
+]
 
 [[package]]
 name = "iniconfig"
