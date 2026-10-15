@@ -82,8 +82,8 @@ def make_engine(args: CliArgs) -> EchopointEngine:
         _ = engine.install_demo(demo_store())
         return engine
     had_cache = engine.load_cache()
-    if args.command == "gui":
-        # The window opens at once and checks in the background, so a slow or
+    if args.command in {"gui", "tui"}:
+        # Both open at once and check in the background, so a slow or
         # unreachable Echopoint never blocks or prevents startup.
         return engine
     if args.command in {"sync", "refresh"}:
@@ -124,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "tui":
             from .renderers.tui import run_tui
 
-            run_tui(engine)
+            run_tui(engine, auto_check=not args.offline and not args.demo)
         elif args.command == "gui":
             from .renderers.qt.app import run_qt
 

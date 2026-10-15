@@ -58,8 +58,9 @@ def test_offline_uses_existing_snapshot(
     assert json.loads(capsys.readouterr().out)["meta"]["from_cache"] is True
 
 
-def test_gui_never_blocks_startup_on_the_network(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("command", ["gui", "tui"])
+def test_apps_never_block_startup_on_the_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
 ) -> None:
     from echohub.__main__ import make_engine, parse_args
 
@@ -68,6 +69,6 @@ def test_gui_never_blocks_startup_on_the_network(
         "echohub.engine.EchopointEngine.sync",
         lambda *_args, **_kwargs: calls.append("sync"),
     )
-    engine = make_engine(parse_args(["--cache-dir", str(tmp_path), "gui"]))
-    assert calls == [], "the window checks in the background instead"
+    engine = make_engine(parse_args(["--cache-dir", str(tmp_path), command]))
+    assert calls == [], "the app checks in the background instead"
     assert not engine.has_data
