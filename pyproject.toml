@@ -11,7 +11,10 @@ requires-python = ">=3.11"
 license = {text = "MIT"}
 # Only the Essentials wheel: Qt Widgets/Gui/Core without WebEngine or add-ons.
 dependencies = [
-  "PySide6-Essentials>=6.8",
+  "PySide6-Essentials>=6.8; python_version >= '3.12'",
+  # 6.12.0 drops a reference to None on every call that returns nothing.
+  # Python 3.12+ never frees None; 3.11 does, and crashes.
+  "PySide6-Essentials>=6.8,<6.12; python_version < '3.12'",
 ]
 authors = [{name = "Ujjwal Vivek"}]
 keywords = ["echohub", "echopoint", "dashboard", "telemetry", "tui", "qt", "pyside6"]
