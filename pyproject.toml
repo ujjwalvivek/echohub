@@ -9,8 +9,12 @@ description = "Local-first telemetry deck for Echopoint data."
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
+# Only the Essentials wheel: Qt Widgets/Gui/Core without WebEngine or add-ons.
+dependencies = [
+  "PySide6-Essentials>=6.8",
+]
 authors = [{name = "Ujjwal Vivek"}]
-keywords = ["echohub", "echopoint", "dashboard", "telemetry", "tui", "tkinter"]
+keywords = ["echohub", "echopoint", "dashboard", "telemetry", "tui", "qt", "pyside6"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "License :: OSI Approved :: MIT License",
