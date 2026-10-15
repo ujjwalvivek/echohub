@@ -1,4 +1,3 @@
-
 from echohub.analytics import build_analytics, constellation_edges, language_slices
 from echohub.demo import demo_store
 from echohub.models import PackageArtifact, Project
