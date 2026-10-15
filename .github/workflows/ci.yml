@@ -57,7 +57,9 @@ jobs:
         run: basedpyright
 
       - name: Test
-        run: python -m pytest
+        # -s keeps a crash's traceback and Qt's fatal message visible; under
+        # capture they vanish with the aborted process. -v names each test.
+        run: python -X faulthandler -m pytest -v -s
 
       - name: CLI smoke test
         run: echohub --demo --cache-dir .ci-cache inspect
